@@ -1,0 +1,61 @@
+name: Full Build Chopin Kernel Module and CEServer
+
+on:
+  workflow_dispatch: # 手动点击按钮触发编译
+
+jobs:
+  build-all:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: 1. 下载小米官方红米Note10Pro内核源码
+      run: |
+        git clone --depth=1 -b chopin-r-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel-source
+
+    - name: 2. 下载 rwMem 驱动源码
+      run: |
+        git clone https://github.com/ri-char/rwMem.git rwmem-src
+
+    - name: 3. 安装 Linux 编译所需的基础环境
+      run: |
+        sudo apt update
+        sudo apt install -y bc build-essential libncurses5-dev libssl-dev flex bison libelf-dev clang lld llvm g++-aarch64-linux-gnu zlib1g-dev:arm64
+
+    - name: 4. 编译魔改版 CEServer
+      run: |
+        cd rwmem-src/CEServer
+        aarch64-linux-gnu-g++ *.cpp -lz -static -O3 -o ceserver_chopin
+
+    - name: 5. 将驱动注入内核源码并进行内核级编译
+      run: |
+        # 将 rwMem 驱动复制到内核源码的 drivers 目录下
+        cp -r rwmem-src/rwMem kernel-source/drivers/rwmem
+        
+        # 将驱动写入内核的编译管理 Makefile 中
+        echo "obj-y += rwmem/" >> kernel-source/drivers/Makefile
+        
+        cd kernel-source
+        
+        # 配置环境变量（指定 ARM64 架构和交叉编译器）
+        export ARCH=arm64
+        export SUBARCH=arm64
+        export CROSS_COMPILE=aarch64-linux-gnu-
+        
+        # 生成红米Note10Pro天玑1100的默认配置文件
+        # 注：若官方更名，通常为 chopin_user_defconfig 或 chopin_defconfig
+        if [ -f arch/arm64/configs/chopin_user_defconfig ]; then
+          make chopin_user_defconfig
+        else
+          make chopin_defconfig
+        fi
+        
+        # 仅仅编译模块（Modules），这样速度极快，几分钟就能出结果
+        make -j$(nproc) modules
+
+    - name: 6. 打包并上传编译产物
+      uses: actions/upload-artifact@v4
+      with:
+        name: Redmi_Note10Pro_Driver_and_CE
+        path: |
+          rwmem-src/CEServer/ceserver_chopin
+          kernel-source/drivers/rwmem/*.ko
