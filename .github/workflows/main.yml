@@ -16,19 +16,34 @@ jobs:
       run: |
         git clone https://github.com/ri-char/rwMem.git rwmem-src
 
-    - name: 3. 配置多架构软件源并安装基础编译环境
+    - name: 3. 安装基础编译环境（仅限主机架构）
       run: |
-        # 开启 arm64 架构支持，修复 zlib1g-dev:arm64 找不到的问题
-        sudo dpkg --add-architecture arm64
         sudo apt update
-        sudo apt install -y bc build-essential libncurses5-dev libssl-dev flex bison libelf-dev clang lld llvm g++-aarch64-linux-gnu zlib1g-dev:arm64
+        sudo apt install -y bc build-essential libncurses5-dev libssl-dev flex bison libelf-dev clang lld llvm g++-aarch64-linux-gnu
 
-    - name: 4. 编译魔改版 CEServer
+    - name: 4. 手动下载并强制安装 arm64 架构的 zlib 依赖包
+      run: |
+        # 创建临时目录
+        mkdir -p /tmp/arm64-libs && cd /tmp/arm64-libs
+        
+        # 1. 下载 Ubuntu 22.04 官方 ports 源中对应的 arm64 核心 zlib 开发包和运行库
+        wget http://ports.ubuntu.com/ubuntu-ports/pool/main/z/zlib/zlib1g_1.2.11.dfsg-2ubuntu9.2_arm64.deb
+        wget http://ports.ubuntu.com/ubuntu-ports/pool/main/z/zlib/zlib1g-dev_1.2.11.dfsg-2ubuntu9.2_arm64.deb
+        
+        # 2. 告诉系统允许识别 arm64 架构
+        sudo dpkg --add-architecture arm64
+        
+        # 3. 强行在本地解压并安装这两个 deb 包，绕过 apt 软件源的检测
+        sudo dpkg -i --force-depends zlib1g_1.2.11.dfsg-2ubuntu9.2_arm64.deb
+        sudo dpkg -i --force-depends zlib1g-dev_1.2.11.dfsg-2ubuntu9.2_arm64.deb
+
+    - name: 5. 编译魔改版 CEServer
       run: |
         cd rwmem-src/CEServer
+        # 此时 zlib1g-dev:arm64 的头文件和库已被解压到系统对应目录，直接编译即可
         aarch64-linux-gnu-g++ *.cpp -lz -static -O3 -o ceserver_chopin
 
-    - name: 5. 将驱动注入内核源码并进行内核级编译
+    - name: 6. 将驱动注入内核源码并进行内核级编译
       run: |
         # 将 rwMem 驱动复制到内核源码的 drivers 目录下
         cp -r rwmem-src/rwMem kernel-source/drivers/rwmem
@@ -50,10 +65,10 @@ jobs:
           make chopin_defconfig
         fi
         
-        # 仅仅编译模块（Modules），这样速度极快
+        # 仅仅编译模块（Modules），速度极快
         make -j$(nproc) modules
 
-    - name: 6. 打包并上传编译产物
+    - name: 7. 打包并上传编译产物
       uses: actions/upload-artifact@v4
       with:
         name: Redmi_Note10Pro_Driver_and_CE
