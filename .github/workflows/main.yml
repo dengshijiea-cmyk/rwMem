@@ -16,8 +16,10 @@ jobs:
       run: |
         git clone https://github.com/ri-char/rwMem.git rwmem-src
 
-    - name: 3. 安装 Linux 编译所需的基础环境
+    - name: 3. 配置多架构软件源并安装基础编译环境
       run: |
+        # 开启 arm64 架构支持，修复 zlib1g-dev:arm64 找不到的问题
+        sudo dpkg --add-architecture arm64
         sudo apt update
         sudo apt install -y bc build-essential libncurses5-dev libssl-dev flex bison libelf-dev clang lld llvm g++-aarch64-linux-gnu zlib1g-dev:arm64
 
@@ -32,7 +34,7 @@ jobs:
         cp -r rwmem-src/rwMem kernel-source/drivers/rwmem
         
         # 将驱动写入内核的编译管理 Makefile 中
-        echo "obj-y += rwmem/" >> kernel-source/drivers/Makefile
+        echo "obj-m += rwmem/" >> kernel-source/drivers/Makefile
         
         cd kernel-source
         
@@ -42,14 +44,13 @@ jobs:
         export CROSS_COMPILE=aarch64-linux-gnu-
         
         # 生成红米Note10Pro天玑1100的默认配置文件
-        # 注：若官方更名，通常为 chopin_user_defconfig 或 chopin_defconfig
         if [ -f arch/arm64/configs/chopin_user_defconfig ]; then
           make chopin_user_defconfig
         else
           make chopin_defconfig
         fi
         
-        # 仅仅编译模块（Modules），这样速度极快，几分钟就能出结果
+        # 仅仅编译模块（Modules），这样速度极快
         make -j$(nproc) modules
 
     - name: 6. 打包并上传编译产物
